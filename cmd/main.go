@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"sync"
 )
 
 func main() {
@@ -21,7 +20,7 @@ func main() {
 	}
 	for {
 		fmt.Println("-----------------------(～￣▽￣)～-----------------------")
-		fmt.Printf("1.获取全部试题答案到题库\n2.开始日常练习\n3.查询练习统计信息\n")
+		fmt.Printf("1.获取试题答案到题库\n2.开始日常练习\n3.查询练习统计信息\n")
 		fmt.Printf("请输入数字选择对应功能，输入 C 退出：")
 		var input string
 		if _, err := fmt.Scan(&input); err != nil {
@@ -69,34 +68,16 @@ func startReplyTopic() {
 		return
 	}
 	backsSize := len(banks)
-	for i, chapter := range chapters {
-		fmt.Printf("%d. %s\n", i, chapter.ChapterName)
-	}
-	startIndex := -1
-	for {
-		fmt.Printf("当前共有 %d 个章节，请输入起始章节下标：", len(chapters))
-		if _, err = fmt.Scan(&startIndex); err != nil || startIndex < 0 || startIndex >= len(chapters) {
-			log.Printf("输入数据不合法, 请重新输入!")
-		} else {
-			break
-		}
-	}
-	for i := startIndex; i < len(chapters); i++ {
+	for i := selectChapter(chapters); i < len(chapters); i++ {
 		chapter := chapters[i]
 		log.Printf("------------章节 %s 开始刷题------------", chapter.ChapterName)
 		interval.ReplyChapterTopic(chapter.ChapterId, &banks)
 		log.Printf("------------章节 %s 完成------------", chapter.ChapterName)
-		if i == len(chapters)-1 {
-			log.Printf("刷题结束，所有章节均以完成！")
-		} else {
-			fmt.Printf("当前章节已完成，是否继续下一章节？（输入 1 继续）")
-			var input string
-			_, _ = fmt.Scan(&input)
-			if input != "1" {
-				break
-			}
+		if i < len(chapters)-1 && !isNext() {
+			break
 		}
 	}
+	log.Printf("刷题结束")
 	// 如果题库发生了变化 那么重新保存题库
 	if len(banks) != backsSize {
 		interval.SaveAnswersToFile(banks)
@@ -110,11 +91,10 @@ func getAllTopicAnswer() {
 		log.Printf("获取章节列表失败，请重试！")
 		return
 	}
-	log.Printf("------------开始获取所有试题答案------------")
+	log.Printf("------------开始获取试题答案------------")
 	banks := make(map[string]*interval.StorageTopic)
 	topicCh := make(chan *interval.StorageTopic, 10)
 	done := make(chan struct{})
-	wg := &sync.WaitGroup{}
 	// 使用channel避免数据竞态
 	go func(banks *map[string]*interval.StorageTopic, ch <-chan *interval.StorageTopic, done chan<- struct{}) {
 		for topic := range ch {
@@ -122,20 +102,44 @@ func getAllTopicAnswer() {
 		}
 		done <- struct{}{}
 	}(&banks, topicCh, done)
-	for _, chapter := range chapters {
-		wg.Add(1)
-		// 使用协程获取同时获取所有章节的试题答案
-		go func(wg *sync.WaitGroup, ch chan<- *interval.StorageTopic, chapterId string) {
-			defer wg.Done()
-			interval.GetChapterAnswer(chapterId, ch)
-		}(wg, topicCh, chapter.ChapterId)
+	for i := selectChapter(chapters); i < len(chapters); i++ {
+		chapter := chapters[i]
+		log.Printf("开始获取章节 %s %s 的试题答案", chapter.ChapterId, chapter.ChapterName)
+		interval.GetChapterAnswer(chapter.ChapterId, topicCh)
+		log.Printf("章节 %s 答案获取完成", chapter.ChapterName)
+		if i < len(chapters)-1 || !isNext() {
+			break
+		}
 	}
-	// 等待所有章节执行完成
-	wg.Wait()
 	close(topicCh)
 	// 等待channel缓冲区数据读取完
 	<-done
 	// 将题库保存到本地文件中
 	interval.SaveAnswersToFile(banks)
 	log.Printf("------------所有试题答案获取完成------------")
+}
+
+// 是否继续下一章
+func isNext() bool {
+	fmt.Printf("当前章节已完成，是否继续下一章节？（输入 1 继续）")
+	var input string
+	_, _ = fmt.Scan(&input)
+	return input == "1"
+}
+
+// 选择开始章节
+func selectChapter(chapters []interval.Chapter) int {
+	for i, chapter := range chapters {
+		fmt.Printf("%d. %s\n", i, chapter.ChapterName)
+	}
+	startIndex := -1
+	for {
+		fmt.Printf("当前共有 %d 个章节，请输入起始章节下标：", len(chapters))
+		if _, err := fmt.Scan(&startIndex); err != nil || startIndex < 0 || startIndex >= len(chapters) {
+			log.Printf("输入数据不合法, 请重新输入!")
+		} else {
+			break
+		}
+	}
+	return startIndex
 }
