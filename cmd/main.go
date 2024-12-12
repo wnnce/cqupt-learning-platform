@@ -67,7 +67,7 @@ func startReplyTopic() {
 		log.Printf("读取题库文件错误，请先获取试题答案或重试！")
 		return
 	}
-	backsSize := len(banks)
+	oldBankSize := len(banks)
 	for i := selectChapter(chapters); i < len(chapters); i++ {
 		chapter := chapters[i]
 		log.Printf("------------章节 %s 开始刷题------------", chapter.ChapterName)
@@ -79,7 +79,7 @@ func startReplyTopic() {
 	}
 	log.Printf("刷题结束")
 	// 如果题库发生了变化 那么重新保存题库
-	if len(banks) != backsSize {
+	if len(banks) != oldBankSize {
 		interval.SaveAnswersToFile(banks)
 	}
 }
@@ -92,28 +92,20 @@ func getAllTopicAnswer() {
 		return
 	}
 	log.Printf("------------开始获取试题答案------------")
-	banks := make(map[string]*interval.StorageTopic)
-	topicCh := make(chan *interval.StorageTopic, 10)
-	done := make(chan struct{})
-	// 使用channel避免数据竞态
-	go func(banks *map[string]*interval.StorageTopic, ch <-chan *interval.StorageTopic, done chan<- struct{}) {
-		for topic := range ch {
-			(*banks)[topic.Id] = topic
-		}
-		done <- struct{}{}
-	}(&banks, topicCh, done)
+	banks := interval.ReadAnswerFile()
+	if banks == nil {
+		log.Println("读取题库文件错误，请删除或创建后重试！")
+		return
+	}
 	for i := selectChapter(chapters); i < len(chapters); i++ {
 		chapter := chapters[i]
 		log.Printf("开始获取章节 %s %s 的试题答案", chapter.ChapterId, chapter.ChapterName)
-		interval.GetChapterAnswer(chapter.ChapterId, topicCh)
+		interval.GetChapterAnswer(chapter.ChapterId, &banks)
 		log.Printf("章节 %s 答案获取完成", chapter.ChapterName)
-		if i < len(chapters)-1 || !isNext() {
+		if i < len(chapters)-1 && !isNext() {
 			break
 		}
 	}
-	close(topicCh)
-	// 等待channel缓冲区数据读取完
-	<-done
 	// 将题库保存到本地文件中
 	interval.SaveAnswersToFile(banks)
 	log.Printf("------------所有试题答案获取完成------------")

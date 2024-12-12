@@ -49,7 +49,7 @@ func ReplyProgramTopic(programId string, banks *map[string]*StorageTopic) int {
 		}
 		storage, ok := (*banks)[topic.TopicId]
 		if !ok {
-			log.Printf("题库中不存在试题 %s 答案，开始获取题解")
+			log.Printf("题库中不存在试题 %s 答案，开始获取题解", topic.TopicId)
 			if answer := getTopicAnswer(topic.TopicId); answer != "" {
 				log.Printf("获取试题 %s 答案成功，添加道题库", topic.TopicId)
 				(*banks)[topic.TopicId] = &StorageTopic{
@@ -60,7 +60,7 @@ func ReplyProgramTopic(programId string, banks *map[string]*StorageTopic) int {
 				}
 			}
 		} else {
-			result, err := submitTopicAnswer(topic.TopicId, storage.Answer)
+			result, err := submitTopicAnswer(topic.TopicId, storage.Answer, true)
 			if err != nil {
 				log.Printf("提交试题 %s 答案失败", topic.TopicId)
 			} else {
@@ -78,7 +78,7 @@ func ReplyProgramTopic(programId string, banks *map[string]*StorageTopic) int {
 }
 
 // GetChapterAnswer 获取某个章节的试题答案
-func GetChapterAnswer(chapterId string, ch chan<- *StorageTopic) {
+func GetChapterAnswer(chapterId string, banks *map[string]*StorageTopic) {
 	programs := getProgramsByChapterId(chapterId)
 	if programs == nil || len(programs) == 0 {
 		log.Printf("章节 %s 的程序列表为空或以达到最大重试次数，跳过此章节！", chapterId)
@@ -87,21 +87,30 @@ func GetChapterAnswer(chapterId string, ch chan<- *StorageTopic) {
 	log.Printf("章节 %s 程序列表获取成功，Size: %d", chapterId, len(programs))
 	for _, program := range programs {
 		log.Printf("开始获取章节 %s 程序 %s 的试题答案", chapterId, program.ProgramId)
-		count := GetProgramAnswer(program.ProgramId, ch)
+		count := GetProgramAnswer(program.ProgramId, banks)
 		log.Printf("章节 %s 程序 %s 获取试题答案完成，成功获取 %d 道题", chapterId, program.ProgramId, count+1)
 	}
 }
 
 // GetProgramAnswer 获取某个章节中指定程序内的所有答案
-func GetProgramAnswer(programId string, ch chan<- *StorageTopic) int {
+func GetProgramAnswer(programId string, banks *map[string]*StorageTopic) int {
 	index, errCount := 0, 0
 	for {
+		if errCount >= 3 {
+			log.Printf("程序 %s 连续获取试题失败超过3道，跳过处理", programId)
+			break
+		}
 		topic := getTopicByProgramIdAndIndex(programId, index)
 		if topic == nil {
 			errCount++
+			index++
 			log.Printf("获取程序 %s 的第 %d 道试题信息失败, 已连续获取失败 %d 道题", programId, index+1, errCount)
+			continue
+		}
+		errCount = 0
+		if _, ok := (*banks)[topic.TopicId]; ok {
+			log.Printf("试题 %s 答案题库内已存在，跳过获取！", topic.TopicId)
 		} else {
-			errCount = 0
 			log.Printf("开始获取试题 %s 的答案, 试题内容: %s, 全部答案: %s", topic.TopicId, topic.TopicContent, topic.TopicAnswer)
 			answer := getTopicAnswer(topic.TopicId)
 			if answer == "" {
@@ -115,18 +124,14 @@ func GetProgramAnswer(programId string, ch chan<- *StorageTopic) int {
 				Answers: topic.TopicAnswer,
 				Answer:  answer,
 			}
-			ch <- storage
-			count, _ := strconv.Atoi(topic.TopicCount)
-			// 当前程序的题目以及获取完成 直接跳出
-			if index >= count-1 {
-				break
-			}
-			index++
+			(*banks)[topic.TopicId] = storage
 		}
-		if errCount >= 3 {
-			log.Printf("程序 %s 连续获取试题失败超过3道，跳过处理", programId)
+		count, _ := strconv.Atoi(topic.TopicCount)
+		// 当前程序的题目以及获取完成 直接跳出
+		if index >= count-1 {
 			break
 		}
+		index++
 		time.Sleep(100 * time.Millisecond)
 	}
 	return index
