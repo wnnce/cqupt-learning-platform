@@ -53,10 +53,15 @@ func queryTopic(programId string, topicIndex int) (*Topic, error) {
 }
 
 // 提交题目答案
-func submitTopicAnswer(topicId, answer string) (bool, error) {
+func submitTopicAnswer(topicId, answer string, isSubmit bool) (bool, error) {
 	requestBody := "{\"strTestParam\":\"<cTestParam><cQuestion>" + topicId + "</cQuestion><cUserAnswer>" + answer + "</cUserAnswer></cTestParam>\"}"
 	request, _ := GenerateCommonRequest("POST", submitAnswerUrl, bytes.NewBufferString(requestBody))
-	request.Header.Add("X-Ajaxpro-Method", "IsOrNotTrue")
+	// 提交和判断答案的请求头不同
+	if isSubmit {
+		request.Header.Add("X-Ajaxpro-Method", "WriteLog")
+	} else {
+		request.Header.Add("X-Ajaxpro-Method", "IsOrNotTrue")
+	}
 	resp, err := client.Do(request)
 	if err != nil {
 		return false, err
@@ -64,7 +69,12 @@ func submitTopicAnswer(topicId, answer string) (bool, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	bodyString := string(body)
-	if bodyString[0] == '1' {
+	// 答案正确返回1 提交成功返回null
+	successPrefix := "1"
+	if isSubmit {
+		successPrefix = "null"
+	}
+	if strings.HasPrefix(bodyString, successPrefix) {
 		return true, nil
 	}
 	return false, nil
@@ -73,7 +83,7 @@ func submitTopicAnswer(topicId, answer string) (bool, error) {
 // 通过穷举获取题目的答案
 func getTopicAnswer(topicId string) string {
 	for _, answer := range []string{"A", "B", "C", "D"} {
-		result, err := submitTopicAnswer(topicId, answer)
+		result, err := submitTopicAnswer(topicId, answer, false)
 		if err != nil {
 			log.Fatalf("判断 %s 的答案 %s 是否正确错误，message: %s，跳过当前答案。", topicId, answer, err)
 		}
