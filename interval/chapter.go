@@ -51,15 +51,17 @@ func ReplyProgramTopic(programId string, banks *map[string]*StorageTopic) int {
 		if !ok {
 			log.Printf("题库中不存在试题 %s 答案，开始获取题解", topic.TopicId)
 			if answer := getTopicAnswer(topic.TopicId); answer != "" {
-				log.Printf("获取试题 %s 答案成功，添加道题库", topic.TopicId)
-				(*banks)[topic.TopicId] = &StorageTopic{
+				log.Printf("获取试题 %s 答案成功，添加到题库", topic.TopicId)
+				storage = &StorageTopic{
 					Id:      topic.TopicId,
 					Content: topic.TopicContent,
 					Answers: topic.TopicAnswer,
 					Answer:  answer,
 				}
+				(*banks)[topic.TopicId] = storage
 			}
-		} else {
+		}
+		if storage != nil && storage.Answer != "" {
 			result, err := submitTopicAnswer(topic.TopicId, storage.Answer, true)
 			if err != nil {
 				log.Printf("提交试题 %s 答案失败", topic.TopicId)
